@@ -1,48 +1,49 @@
 
-const extractUniqueIngredientsWithUnits = (recipesData) => { // AHORA RECIBE LA DATA DE RECETAS COMO ARGUMENTO
-  const ingredientMap = new Map(); // Usaremos un Map para almacenar {nombre_normalizado: {name: originalName, defaultUnit: unit}}
+const extractUniqueIngredientsWithUnits = (recipesData) => {
+  const ingredientMap = new Map();
 
-  // Verifica que recipesData sea un array antes de iterar
   if (!Array.isArray(recipesData)) {
     console.error('Error: recipesData no es un array en extractUniqueIngredientsWithUnits.');
     return [];
   }
 
-  recipesData.forEach(recipe => { // Itera sobre la data que recibe
-    // Asegura que recipe.ingredients sea un array
+  recipesData.forEach(recipe => {
     if (recipe.ingredients && Array.isArray(recipe.ingredients)) {
       recipe.ingredients.forEach(ingredient => {
-        const normalizedName = ingredient.name.trim().toLowerCase();
-        const originalName = ingredient.name.trim(); // Mantener el nombre original para mostrar
-        const unit = ingredient.unit ? ingredient.unit.trim().toLowerCase() : 'cantidad'; // Usar 'cantidad' si no hay unidad
+        // Añadir una verificación para 'ingredient.name'
+        const normalizedName = ingredient.name ? ingredient.name.trim().toLowerCase() : '';
+        const originalName = ingredient.name ? ingredient.name.trim() : 'Unknown Ingredient'; // Fallback por si no hay nombre
+        const unit = ingredient.unit ? ingredient.unit.trim().toLowerCase() : 'cantidad';
 
-        if (!ingredientMap.has(normalizedName)) {
-          // Si el ingrediente no se ha añadido todavía, lo añadimos con su primera unidad
-          ingredientMap.set(normalizedName, {
-            name: originalName,
-            defaultUnit: unit
-          });
-        } else {
-          // Si ya existe, preferimos una unidad real si la que tenemos es 'cantidad'
-          const existing = ingredientMap.get(normalizedName);
-          if (existing.defaultUnit === 'cantidad' && unit !== 'cantidad' && unit !== 'al gusto' && unit !== 'opcional') {
+        if (normalizedName) { // Solo añadir si existe un nombre normalizado válido
+          if (!ingredientMap.has(normalizedName)) {
             ingredientMap.set(normalizedName, {
               name: originalName,
               defaultUnit: unit
             });
+          } else {
+            const existing = ingredientMap.get(normalizedName);
+            if (existing.defaultUnit === 'cantidad' && unit !== 'cantidad' && unit !== 'al gusto' && unit !== 'opcional') {
+              ingredientMap.set(normalizedName, {
+                name: originalName,
+                defaultUnit: unit
+              });
+            }
           }
         }
       });
     }
   });
 
-  // Convertimos el Map a un array de objetos y lo ordenamos por nombre
   const sortedIngredients = Array.from(ingredientMap.values()).sort((a, b) => {
-    return a.name.localeCompare(b.name);
+    // Verificación defensiva: asegúrate de que 'name' exista antes de llamar a localeCompare
+    const nameA = a.name || ''; // Si a.name es undefined/null, usa un string vacío
+    const nameB = b.name || ''; // Si b.name es undefined/null, usa un string vacío
+    return nameA.localeCompare(nameB);
   });
 
   return sortedIngredients;
 };
 
-// Exportamos la función, no la constante pre-calculada.
+// Exportamos la función.
 export default extractUniqueIngredientsWithUnits;
