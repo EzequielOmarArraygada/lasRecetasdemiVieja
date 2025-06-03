@@ -1,105 +1,212 @@
-import { Ionicons } from '@expo/vector-icons'; // Para los íconos de checkbox/cruz
-import AsyncStorage from '@react-native-async-storage/async-storage'; // Importa AsyncStorage
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
-import ALL_INGREDIENTS from '../data/ingredients'; // Importa la lista de todos los ingredientes únicos
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { Alert, FlatList, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import extractUniqueIngredientsWithUnits from '../data/ingredients';
+import RECIPES from '../data/recipes';
 
-// Clave para guardar en AsyncStorage
 const ASYNC_STORAGE_KEY = 'mySelectedIngredients';
 
+const normalizeIngredientName = (name) => name.trim().toLowerCase();
+
 function IngredientsFilterScreen() {
-  // Estado para guardar los ingredientes que el usuario ha seleccionado como disponibles
-  // Usamos un objeto para un acceso más rápido por nombre
   const [selectedIngredients, setSelectedIngredients] = useState({});
   const navigation = useNavigation();
 
-  // Cargar ingredientes seleccionados de AsyncStorage al inicio
+  const allIngredientsData = useMemo(() => {
+    return extractUniqueIngredientsWithUnits(RECIPES);
+  }, [RECIPES]);
+
   useEffect(() => {
     const loadSelectedIngredients = async () => {
       try {
         const storedIngredients = await AsyncStorage.getItem(ASYNC_STORAGE_KEY);
-        if (storedIngredients !== null) {
+        if (storedIngredients) {
           setSelectedIngredients(JSON.parse(storedIngredients));
         }
       } catch (error) {
-        console.error('Error al cargar los ingredientes de AsyncStorage:', error);
-        Alert.alert('Error', 'No se pudieron cargar tus ingredientes guardados.');
+        console.error('Error al cargar ingredientes seleccionados:', error);
       }
     };
     loadSelectedIngredients();
   }, []);
 
-  // Guardar ingredientes seleccionados en AsyncStorage cada vez que cambian
   useEffect(() => {
     const saveSelectedIngredients = async () => {
       try {
         await AsyncStorage.setItem(ASYNC_STORAGE_KEY, JSON.stringify(selectedIngredients));
       } catch (error) {
-        console.error('Error al guardar los ingredientes en AsyncStorage:', error);
-        Alert.alert('Error', 'No se pudieron guardar tus ingredientes.');
+        console.error('Error al guardar ingredientes seleccionados:', error);
       }
     };
     saveSelectedIngredients();
   }, [selectedIngredients]);
 
-
-  // Función para manejar la selección/deselección de un ingrediente
-  const toggleIngredient = useCallback((ingredientName) => {
+  const toggleIngredient = (ingredientName) => {
     setSelectedIngredients(prevSelected => {
       const newSelected = { ...prevSelected };
-      if (newSelected[ingredientName]) {
-        delete newSelected[ingredientName]; // Deseleccionar
+      // Usar ingredientName.name para normalizar y acceder
+      if (newSelected[normalizeIngredientName(ingredientName.name)]) {
+        delete newSelected[normalizeIngredientName(ingredientName.name)];
       } else {
-        newSelected[ingredientName] = true; // Seleccionar
+        newSelected[normalizeIngredientName(ingredientName.name)] = {
+          quantity: ingredientName.defaultUnit === 'cantidad' ? 1 : null, // Default quantity, can be changed
+          unit: ingredientName.defaultUnit || 'cantidad',
+        };
       }
       return newSelected;
     });
-  }, []); // No dependencies for useCallback, as it only uses prevSelected state
+  };
 
-  // Función para renderizar cada ítem de ingrediente en la FlatList
+  const updateIngredientQuantity = (ingredientName, quantity) => {
+    setSelectedIngredients(prevSelected => ({
+      ...prevSelected,
+      [normalizeIngredientName(ingredientName)]: {
+        ...prevSelected[normalizeIngredientName(ingredientName)],
+        quantity: quantity === '' ? null : Number(quantity),
+      },
+    }));
+  };
+
+  const clearAllSelected = useCallback(() => {
+    Alert.alert(
+      'Limpiar Ingredientes',
+      '¿Estás seguro de que quieres deseleccionar todos los ingredientes?',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Sí',
+          onPress: () => setSelectedIngredients({}),
+        },
+      ]
+    );
+  }, []);
+
+  const applyIngredientsFilter = useCallback(() => {
+    const selectedIngredientNames = Object.keys(selectedIngredients);
+    if (selectedIngredientNames.length === 0) {
+      Alert.alert(
+        'Sin Ingredientes Seleccionados',
+        'No has seleccionado ningún ingrediente. ¿Quieres ver todas las recetas disponibles?',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Ver Todas',
+            onPress: () => {
+              navigation.navigate('MealsOverview', {
+                screen: 'MealsOverview',
+                params: {
+                  selectedIngredients: [],
+                  screenTitle: 'Todas las Recetas',
+                },
+              });
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    navigation.navigate('MealsOverview', {
+      screen: 'MealsOverview',
+      params: {
+        selectedIngredients: selectedIngredientNames,
+        screenTitle: 'Recetas con tus Ingredientes',
+      },
+    });
+  }, [navigation, selectedIngredients]);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <Pressable
+          onPress={applyIngredientsFilter}
+          style={({ pressed }) => ({
+            padding: 8,
+            opacity: pressed ? 0.6 : 1,
+          })}
+        >
+          <Ionicons
+            name="checkmark-done-circle-outline"
+            size={28}
+            color={Platform.OS === 'ios' ? '#007AFF' : 'white'}
+          />
+        </Pressable>
+      ),
+      headerLeft: () => (
+        <Pressable
+          onPress={clearAllSelected}
+          style={({ pressed }) => ({
+            padding: 8,
+            opacity: pressed ? 0.6 : 1,
+          })}
+        >
+          <Ionicons
+            name="trash-outline"
+            size={24}
+            color={Platform.OS === 'ios' ? '#FF3B30' : 'white'}
+          />
+        </Pressable>
+      ),
+    });
+  }, [navigation, applyIngredientsFilter, clearAllSelected]);
+
+
   const renderIngredientItem = ({ item }) => {
-    const isSelected = selectedIngredients[item];
+    const normalizedName = normalizeIngredientName(item.name);
+    const isSelected = !!selectedIngredients[normalizedName]; // Verifica si existe en el objeto
+    const quantity = selectedIngredients[normalizedName]?.quantity;
+    const unit = selectedIngredients[normalizedName]?.unit || item.defaultUnit; // Usa la unidad guardada o la por defecto
+
     return (
       <Pressable
         onPress={() => toggleIngredient(item)}
         style={({ pressed }) => [
           styles.ingredientItem,
-          isSelected ? styles.ingredientItemSelected : null,
-          pressed ? styles.ingredientItemPressed : null,
+          isSelected && styles.ingredientItemSelected,
+          pressed && styles.ingredientItemPressed,
         ]}
       >
-        <Text style={styles.ingredientText}>{item}</Text>
-        {isSelected ? (
-          <Ionicons name="checkbox-outline" size={24} color="#4CAF50" />
-        ) : (
-          <Ionicons name="square-outline" size={24} color="#777" />
+        <View style={styles.ingredientRow}>
+          <Ionicons
+            name={isSelected ? 'checkbox-outline' : 'square-outline'}
+            size={24}
+            color={isSelected ? '#4CAF50' : '#888'}
+          />
+          {/* ESTA ES LA LÍNEA CRÍTICA: item.name debe estar envuelto en <Text> */}
+          <Text style={styles.ingredientText}>{item.name}</Text> 
+          {isSelected && unit !== 'al gusto' && unit !== 'opcional' && (
+            <View style={styles.quantityInputContainer}>
+              <TextInput
+                style={styles.quantityInput}
+                keyboardType="numeric"
+                onChangeText={(text) => updateIngredientQuantity(item.name, text)}
+                value={quantity !== null ? String(quantity) : ''}
+                placeholder="Cant."
+                onFocus={() => Keyboard.dismiss()} // Para evitar que el teclado se superponga
+              />
+              <Text style={styles.unitText}>{unit}</Text>
+            </View>
+          )}
+        </View>
+        {isSelected && (unit === 'al gusto' || unit === 'opcional') && (
+          <Text style={styles.noteText}>({unit})</Text>
         )}
       </Pressable>
     );
   };
 
-  // Configurar el header de la pantalla (opcional)
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      title: 'Mis Ingredientes',
-      // Puedes añadir botones al header aquí si lo deseas
-      // Por ejemplo, para limpiar todos los ingredientes
-      // headerRight: () => (
-      //   <Pressable onPress={() => Alert.alert('Limpiar', '¿Deseas limpiar todos los ingredientes seleccionados?', [{text: 'No'}, {text: 'Sí', onPress: () => setSelectedIngredients({})}])}>
-      //     <Ionicons name="trash-outline" size={24} color={Platform.OS === 'ios' ? '#007AFF' : 'white'} />
-      //   </Pressable>
-      // ),
-    });
-  }, [navigation]);
-
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Selecciona tus ingredientes disponibles</Text>
+      <Text style={styles.title}>Selecciona tus Ingredientes</Text>
       <FlatList
-        data={ALL_INGREDIENTS}
-        keyExtractor={(item) => item} // El ingrediente mismo es único, úsalo como key
+        data={allIngredientsData}
         renderItem={renderIngredientItem}
+        keyExtractor={(item) => item.name} // Usa item.name como key
         contentContainerStyle={styles.listContent}
       />
     </View>
@@ -122,13 +229,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   listContent: {
-    paddingBottom: 20, // Espacio al final de la lista
+    paddingBottom: 20,
   },
   ingredientItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: 10,
     paddingHorizontal: 15,
     marginVertical: 6,
     backgroundColor: 'white',
@@ -139,19 +243,49 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
-    elevation: 2, // Para Android
+    elevation: 2,
   },
   ingredientItemSelected: {
-    borderColor: '#4CAF50', // Borde verde si seleccionado
-    backgroundColor: '#e6ffe6', // Fondo ligeramente verde si seleccionado
+    borderColor: '#4CAF50',
+    backgroundColor: '#e6ffe6',
   },
   ingredientItemPressed: {
-    opacity: 0.7, // Efecto de presión
+    opacity: 0.7,
+  },
+  ingredientRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 5,
   },
   ingredientText: {
     fontSize: 16,
     color: '#333',
-    flex: 1, // Permite que el texto ocupe el espacio restante
+    flex: 1,
     marginRight: 10,
+  },
+  quantityInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  quantityInput: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    width: 60,
+    textAlign: 'center',
+    marginRight: 5,
+  },
+  unitText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  noteText: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'right',
+    marginTop: -5,
   },
 });
