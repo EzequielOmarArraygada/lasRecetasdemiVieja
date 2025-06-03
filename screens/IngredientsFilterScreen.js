@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, Keyboard, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import extractUniqueIngredientsWithUnits from '../data/ingredients';
 import RECIPES from '../data/recipes';
 
@@ -187,7 +187,6 @@ function IngredientsFilterScreen() {
                 onChangeText={(text) => updateIngredientQuantity(item.name, text)}
                 value={quantity !== null ? String(quantity) : ''}
                 placeholder="Cant."
-                onFocus={() => Keyboard.dismiss()} // Para evitar que el teclado se superponga
               />
               <Text style={styles.unitText}>{unit}</Text>
             </View>
