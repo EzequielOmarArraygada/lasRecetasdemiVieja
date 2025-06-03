@@ -4,11 +4,13 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 // Importa tus pantallas existentes
 import CategoriesScreen from '../screens/CategoriesScreen';
+import HomeScreen from '../screens/HomeScreen';
 import IngredientsFilterScreen from '../screens/IngredientsFilterScreen';
 import RecipeDetailScreen from '../screens/RecipeDetailScreen';
 import RecipesOverviewScreen from '../screens/RecipesOverviewScreen';
-// --- NUEVO: Importa tu nueva HomeScreen ---
-import HomeScreen from '../screens/HomeScreen';
+
+// --- NUEVO: Importa tus colores ---
+import Colors from '../constants/Colors.js';
 
 
 const Stack = createNativeStackNavigator();
@@ -17,33 +19,35 @@ function MealsStackNavigator() {
   return (
     <Stack.Navigator
       screenOptions={{
-        headerStyle: { backgroundColor: '#351401' }, // Un color base para la cabecera, puedes cambiarlo
-        headerTintColor: 'white',
-        contentStyle: { backgroundColor: '#3f2f25' }, // Color de fondo general de las pantallas
+        headerStyle: { backgroundColor: Colors.primary800 }, // Usa el azul más oscuro para la cabecera
+        headerTintColor: Colors.white, // El texto de la cabecera será blanco
+        contentStyle: { backgroundColor: Colors.gray100 }, // Fondo general de las pantallas un gris muy claro
       }}
     >
-      {/* --- CAMBIO CLAVE: HomeScreen como primera pantalla --- */}
       <Stack.Screen
         name="Home"
         component={HomeScreen}
         options={{
-          headerShown: false, // Ocultamos la cabecera por defecto para darle control a HomeScreen
+          headerShown: false,
         }}
       />
       <Stack.Screen
         name="MealsCategories"
         component={CategoriesScreen}
         options={{
-          title: 'Categorías de Recetas', // Título para esta pantalla
-          headerShown: true, // Aseguramos que la cabecera sea visible
+          title: 'Categorías de Recetas',
+          headerShown: true,
+          // Puedes personalizar más aquí si quieres un color de cabecera diferente para esta pantalla
+          // headerStyle: { backgroundColor: Colors.primary500 },
+          // headerTintColor: Colors.white,
         }}
       />
       <Stack.Screen
         name="MealsOverview"
         component={RecipesOverviewScreen}
         options={({ route }) => ({
-            title: route.params?.categoryTitle || 'Recetas', // El título se puede pasar por parámetros
-            headerShown: true, // Aseguramos que la cabecera sea visible
+            title: route.params?.categoryTitle || 'Recetas',
+            headerShown: true,
         })}
       />
       <Stack.Screen
@@ -51,7 +55,10 @@ function MealsStackNavigator() {
         component={RecipeDetailScreen}
         options={{
           title: 'Detalle de la Receta',
-          headerShown: true, // Aseguramos que la cabecera sea visible
+          headerShown: true,
+          // Aquí también puedes aplicar colores, por ejemplo:
+          // headerStyle: { backgroundColor: Colors.primary500 },
+          // headerTintColor: Colors.gray800, // O un color oscuro para el texto del título si el fondo es claro
         }}
       />
       <Stack.Screen
@@ -59,7 +66,10 @@ function MealsStackNavigator() {
         component={IngredientsFilterScreen}
         options={{
           title: 'Mis Ingredientes',
-          headerShown: true, // Aseguramos que la cabecera sea visible
+          headerShown: true,
+          // Aquí también puedes aplicar colores:
+          // headerStyle: { backgroundColor: Colors.primary500 },
+          // headerTintColor: Colors.gray800,
         }}
       />
     </Stack.Navigator>
@@ -69,7 +79,6 @@ function MealsStackNavigator() {
 export default function AppNavigator() {
   return (
     <NavigationContainer>
-      {/* Aquí podría ir un DrawerNavigator si lo necesitas más adelante */}
       <MealsStackNavigator />
     </NavigationContainer>
   );

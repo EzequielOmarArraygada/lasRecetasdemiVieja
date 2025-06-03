@@ -188,7 +188,7 @@ function RecipesOverviewScreen() {
         break;
       case 'NO_APLICA':
         statusColor = '#3F51B5'; // Azul (para cuando no hay filtro de ingredientes)
-        statusText = 'Ver detalles de ingredientes';
+        statusText = 'Ver detalles dela receta';
         break;
     }
 
