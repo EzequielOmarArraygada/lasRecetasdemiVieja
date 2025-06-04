@@ -16,7 +16,8 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.array90.lasRecetasdemiVieja"
     },
     "web": {
       "bundler": "metro",
@@ -33,6 +34,11 @@
         }
       ],
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "91aaf227-dc34-4dfd-be64-d6385361256e"
+      }
+    }
   }
 }
