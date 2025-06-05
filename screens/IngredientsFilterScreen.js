@@ -1,357 +1,379 @@
-// screens/IngredientsFilterScreen.js
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { Alert, Dimensions, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import Colors from '../constants/Colors.js'; // Asegúrate de que esta ruta sea correcta
+import { Alert, Dimensions, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import Colors from '../constants/Colors.js';
 import extractUniqueIngredientsWithUnits from '../data/ingredients';
 import RECIPES from '../data/recipes';
 
 const ASYNC_STORAGE_KEY = 'mySelectedIngredients';
 
 const normalizeIngredientName = (name) => {
-  // Aseguramos que 'name' sea una cadena antes de intentar 'trim' o 'toLowerCase'
   return (typeof name === 'string' ? name : String(name || '')).trim().toLowerCase();
 };
 
-// --- Componente memoizado para cada ingrediente seleccionado ---
-const SelectedIngredientItem = React.memo(({ item, toggleIngredientSelection, updateIngredientQuantity }) => {
-  // Verificación defensiva: si el ítem es nulo/indefinido, no renderizamos nada
+const SelectedIngredientItem = React.memo(({ item, updateIngredientQuantity, toggleIngredientSelection }) => {
   if (!item) {
     return null;
   }
 
+  const [quantity, setQuantity] = useState(String(item.quantity || ''));
+
+  useEffect(() => {
+    setQuantity(String(item.quantity || ''));
+  }, [item.quantity]);
+
+  const handleQuantityChange = (text) => {
+    setQuantity(text);
+    const num = parseFloat(text);
+    if (!isNaN(num) || text === '') {
+      updateIngredientQuantity(item.originalName, num);
+    }
+  };
+
   return (
-    <View style={styles.selectedIngredientItem}>
-      <View style={styles.selectedIngredientInfo}>
-        {/* Asegúrate de que originalName siempre sea una cadena */}
-        <Text style={styles.selectedIngredientName}>{String(item.originalName ?? '')}</Text>
+    <View style={styles.modalIngredientItem}>
+      <View style={styles.modalIngredientInfo}>
+        <Text style={styles.modalIngredientName}>{item.originalName}</Text>
         <View style={styles.quantityInputContainer}>
           <TextInput
             style={styles.quantityInput}
             keyboardType="numeric"
-            // *** CAMBIO CRÍTICO AQUÍ: Manejo robusto de item.quantity ***
-            // Aseguramos que el valor sea una cadena vacía si es null/undefined,
-            // o una cadena si es un número.
-            value={item.quantity == null ? '' : String(item.quantity)}
-            onChangeText={(text) => updateIngredientQuantity(normalizeIngredientName(item.originalName), text)}
-            placeholder="Cant."
-            placeholderTextColor={Colors.gray500}
-            maxLength={5}
+            onChangeText={handleQuantityChange}
+            value={quantity}
+            placeholder="0"
+            placeholderTextColor={Colors.gray400}
+            maxLength={6}
+            blurOnSubmit={false}
           />
-          {/* Asegúrate de que unit siempre sea una cadena */}
-          <Text style={styles.unitText}>{String(item.unit ?? '')}</Text>
+          {item.defaultUnit && item.defaultUnit !== 'cantidad' && (
+            <Text style={styles.unitText}>{item.defaultUnit}</Text>
+          )}
         </View>
       </View>
-      <Pressable onPress={() => toggleIngredientSelection(item)} style={({ pressed }) => [styles.removeButton, pressed && styles.pressed]}>
-        <Ionicons name="close-circle" size={28} color={Colors.danger} />
+      <Pressable style={styles.removeButton} onPress={() => toggleIngredientSelection({ name: item.originalName })}>
+        <Ionicons name="close-circle" size={24} color={Colors.red500} />
       </Pressable>
     </View>
   );
 });
 
-// --- Componente memoizado para cada ingrediente de la lista general ---
 const IngredientItem = React.memo(({ item, isSelected, toggleIngredientSelection }) => {
-  // Verificación defensiva: si el ítem es nulo/indefinido, no renderizamos nada
-  if (!item) {
-    return null;
-  }
-
   return (
     <Pressable
       style={({ pressed }) => [
         styles.ingredientItem,
-        isSelected && styles.ingredientItemSelected,
-        pressed && styles.pressed,
+        isSelected ? styles.selectedItem : {},
+        pressed ? styles.pressedItem : {},
       ]}
       onPress={() => toggleIngredientSelection(item)}
     >
-      {/* Asegúrate de que name y defaultUnit siempre sean cadenas al renderizar */}
-      <Text style={[styles.ingredientText, isSelected && { color: Colors.white }]}>
-        {String(item.name ?? '')} {item.defaultUnit !== 'cantidad' && `(${String(item.defaultUnit ?? '')})`}
-      </Text>
+      <Text style={styles.ingredientName}>{item.name}</Text>
       {isSelected && (
         <Ionicons
           name="checkmark-circle"
           size={24}
-          color={Colors.white}
-          style={styles.checkmarkIcon}
+          color={Colors.primary500}
         />
       )}
     </Pressable>
   );
 });
 
-
-function IngredientsFilterScreen() {
-  const [selectedIngredients, setSelectedIngredients] = useState({});
+const IngredientsFilterScreen = () => {
+  const [availableIngredients, setAvailableIngredients] = useState([]);
+  const [selectedIngredients, setSelectedIngredients] = useState([]);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [searchText, setSearchText] = useState('');
   const navigation = useNavigation();
 
-  const allIngredientsData = useMemo(() => {
-    return extractUniqueIngredientsWithUnits(RECIPES);
-  }, [RECIPES]);
+  useEffect(() => {
+    const uniqueIngredients = extractUniqueIngredientsWithUnits(RECIPES);
+    setAvailableIngredients(uniqueIngredients);
+  }, []);
 
   useEffect(() => {
     const loadSelectedIngredients = async () => {
       try {
-        // Asegúrate de haber quitado la línea 'await AsyncStorage.clear();' de App.js después de la última prueba.
         const storedIngredients = await AsyncStorage.getItem(ASYNC_STORAGE_KEY);
-        if (storedIngredients !== null) {
-          const parsedIngredients = JSON.parse(storedIngredients);
-          if (typeof parsedIngredients === 'object' && parsedIngredients !== null) {
-            const validatedIngredients = {};
-            for (const key in parsedIngredients) {
-              if (Object.hasOwnProperty.call(parsedIngredients, key)) {
-                const ingredient = parsedIngredients[key];
-                // Validación robusta de los datos recuperados:
-                // Aseguramos que originalName y unit sean strings y quantity sea number o null
-                if (
-                  typeof ingredient === 'object' &&
-                  ingredient !== null &&
-                  typeof ingredient.originalName === 'string' &&
-                  (typeof ingredient.quantity === 'number' || ingredient.quantity === null) &&
-                  typeof ingredient.unit === 'string'
-                ) {
-                  validatedIngredients[normalizeIngredientName(ingredient.originalName)] = ingredient;
-                } else {
-                  console.warn(`Datos de ingrediente inválidos encontrados en AsyncStorage para la clave ${key}:`, ingredient);
-                }
-              }
-            }
-            setSelectedIngredients(validatedIngredients);
-          } else {
-            console.warn('Los datos de ingredientes almacenados no son un objeto:', parsedIngredients);
-            setSelectedIngredients({});
-          }
+        if (storedIngredients) {
+          const parsedIngredients = JSON.parse(storedIngredients).map(item => ({
+            originalName: item.originalName,
+            normalizedName: normalizeIngredientName(item.originalName),
+            defaultUnit: item.defaultUnit,
+            quantity: item.quantity || 0,
+          }));
+          setSelectedIngredients(parsedIngredients);
         }
       } catch (error) {
-        console.error('Error al cargar los ingredientes seleccionados de AsyncStorage:', String(error));
-        Alert.alert('Error', 'No se pudieron cargar los ingredientes guardados.');
-        setSelectedIngredients({});
+        console.error('Error loading selected ingredients from AsyncStorage:', error);
       }
     };
     loadSelectedIngredients();
   }, []);
 
-  const saveSelectedIngredients = useCallback(async (ingredientsToSave) => {
-    try {
-      await AsyncStorage.setItem(ASYNC_STORAGE_KEY, JSON.stringify(ingredientsToSave));
-    } catch (error) {
-      console.error('Error al guardar los ingredientes seleccionados en AsyncStorage:', String(error));
-      Alert.alert('Error', 'No se pudieron guardar los ingredientes.');
-    }
-  }, []);
+  useEffect(() => {
+    const saveSelectedIngredients = async () => {
+      try {
+        await AsyncStorage.setItem(ASYNC_STORAGE_KEY, JSON.stringify(selectedIngredients));
+      } catch (error) {
+        console.error('Error saving selected ingredients to AsyncStorage:', error);
+      }
+    };
+    saveSelectedIngredients();
+  }, [selectedIngredients]);
 
   const toggleIngredientSelection = useCallback((ingredient) => {
     setSelectedIngredients((prevSelected) => {
-      const nameToNormalize = ingredient.name || ingredient.originalName;
-      const normalizedName = normalizeIngredientName(nameToNormalize);
+      const normalizedNewIngredientName = normalizeIngredientName(ingredient.name);
+      const isAlreadySelected = prevSelected.some(
+        (item) => normalizeIngredientName(item.originalName) === normalizedNewIngredientName
+      );
 
-      const newSelected = { ...prevSelected };
-      if (newSelected[normalizedName]) {
-        delete newSelected[normalizedName];
+      if (isAlreadySelected) {
+        return prevSelected.filter(
+          (item) => normalizeIngredientName(item.originalName) !== normalizedNewIngredientName
+        );
       } else {
-        newSelected[normalizedName] = {
-          originalName: String(ingredient.name ?? ''), // Aseguramos que sea string
-          quantity: null,
-          unit: String(ingredient.defaultUnit ?? ''), // Aseguramos que sea string
-        };
+        return [
+          ...prevSelected,
+          {
+            originalName: ingredient.name,
+            normalizedName: normalizedNewIngredientName,
+            defaultUnit: ingredient.defaultUnit,
+            quantity: 0,
+          },
+        ];
       }
-      saveSelectedIngredients(newSelected);
-      return newSelected;
     });
-  }, [saveSelectedIngredients]);
+  }, []);
 
-  const updateIngredientQuantity = useCallback((ingredientName, quantity) => {
+  const updateIngredientQuantity = useCallback((ingredientOriginalName, newQuantity) => {
     setSelectedIngredients((prevSelected) => {
-      const newSelected = { ...prevSelected };
-      if (newSelected[ingredientName]) {
-        newSelected[ingredientName] = {
-          ...newSelected[ingredientName],
-          quantity: quantity === '' ? null : Number(quantity),
-        };
-        saveSelectedIngredients(newSelected);
-      }
-      return newSelected;
+      return prevSelected.map((item) => {
+        if (normalizeIngredientName(item.originalName) === normalizeIngredientName(ingredientOriginalName)) {
+          return { ...item, quantity: newQuantity };
+        }
+        return item;
+      });
     });
-  }, [saveSelectedIngredients]);
+  }, []);
 
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerLeft: () => (
-        <Pressable onPress={() => navigation.goBack()} style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}>
-          <Ionicons
-            name={Platform.OS === 'ios' ? 'chevron-back' : 'arrow-back'}
-            size={28}
-            color={Colors.white}
-          />
-        </Pressable>
-      ),
-      headerRight: () => (
-        <Pressable
-          onPress={() => {
-            navigation.navigate('MealsOverview', {
-              selectedIngredients: selectedIngredients,
-            });
-          }}
-          style={({ pressed }) => [styles.headerButton, pressed && styles.pressed]}
-        >
-          <Ionicons
-            name="checkmark-done-circle"
-            size={28}
-            color={Colors.white}
-          />
-        </Pressable>
-      ),
-      headerStyle: { backgroundColor: Colors.primary800 },
-      headerTintColor: Colors.white,
-      headerTitleStyle: { fontWeight: 'bold' },
+  const clearAllSelections = useCallback(() => {
+    Alert.alert(
+      'Confirmar',
+      '¿Estás seguro de que quieres borrar todos los ingredientes seleccionados?',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Borrar',
+          onPress: () => setSelectedIngredients([]),
+          style: 'destructive',
+        },
+      ],
+      { cancelable: true }
+    );
+  }, []);
+
+  const filteredAvailableIngredients = useMemo(() => {
+    if (!searchText) {
+      return availableIngredients;
+    }
+    const normalizedSearchText = normalizeIngredientName(searchText);
+    return availableIngredients.filter(ingredient =>
+      normalizeIngredientName(ingredient.name).includes(normalizedSearchText)
+    );
+  }, [availableIngredients, searchText]);
+
+  const navigateToRecipes = useCallback(() => {
+    setModalVisible(false);
+    // *** CAMBIO CRUCIAL AQUÍ: Usar el nombre de la ruta correcto "MealsOverview" ***
+    navigation.navigate('MealsOverview', {
+      selectedIngredients: selectedIngredients,
+      categoryTitle: 'Recetas por Ingredientes' // O un título más adecuado
     });
   }, [navigation, selectedIngredients]);
 
-  const renderSelected = useCallback(({ item }) => (
-    <SelectedIngredientItem
-      item={item}
-      toggleIngredientSelection={toggleIngredientSelection}
-      updateIngredientQuantity={updateIngredientQuantity}
-    />
-  ), [toggleIngredientSelection, updateIngredientQuantity]);
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={styles.headerButtonsContainer}>
+          <TouchableOpacity
+            onPress={() => setModalVisible(true)}
+            style={styles.headerButton}
+          >
+            <Ionicons name="list" size={24} color={Colors.primary500} />
+            <Text style={styles.headerButtonText}> ({selectedIngredients.length})</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={clearAllSelections}
+            style={styles.headerButton}
+          >
+            <Ionicons name="trash" size={24} color={Colors.red500} />
+          </TouchableOpacity>
+        </View>
+      ),
+    });
+  }, [navigation, selectedIngredients.length, clearAllSelections]);
 
-  const renderAll = useCallback(({ item }) => {
-    const isSelected = !!selectedIngredients[normalizeIngredientName(item.name)];
-    return (
-      <IngredientItem
-        item={item}
-        isSelected={isSelected}
-        toggleIngredientSelection={toggleIngredientSelection}
-      />
-    );
-  }, [selectedIngredients, toggleIngredientSelection]);
 
+  const selectedIngredientNames = useMemo(() => {
+    return new Set(selectedIngredients.map(item => normalizeIngredientName(item.originalName)));
+  }, [selectedIngredients]);
 
   return (
     <KeyboardAvoidingView
-      style={styles.fullScreen}
+      style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
-      <View style={styles.container}>
-        <Text style={styles.sectionTitle}>Ingredientes Seleccionados:</Text>
-        <FlatList
-          data={Object.values(selectedIngredients).sort((a, b) => (a.originalName ?? '').localeCompare(b.originalName ?? ''))}
-          keyExtractor={(item) => normalizeIngredientName(item.originalName)}
-          renderItem={renderSelected}
-          ListEmptyComponent={<Text style={styles.emptyListText}>No has seleccionado ningún ingrediente.</Text>}
-          style={styles.selectedIngredientsListContainer}
-          contentContainerStyle={styles.selectedIngredientsListContent}
+      <View style={styles.searchContainer}>
+        <Ionicons name="search" size={20} color={Colors.gray500} style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Buscar ingrediente..."
+          placeholderTextColor={Colors.gray400}
+          value={searchText}
+          onChangeText={setSearchText}
         />
-
-        <Text style={styles.sectionTitle}>Todos los Ingredientes:</Text>
-        <FlatList
-          data={allIngredientsData}
-          keyExtractor={(item) => normalizeIngredientName(item.name)}
-          renderItem={renderAll}
-          contentContainerStyle={styles.mainListContent}
-        />
+        {searchText.length > 0 && (
+          <Pressable onPress={() => setSearchText('')} style={styles.clearSearchButton}>
+            <Ionicons name="close-circle" size={20} color={Colors.gray500} />
+          </Pressable>
+        )}
       </View>
+
+      <FlatList
+        data={filteredAvailableIngredients}
+        keyExtractor={(item) => normalizeIngredientName(item.name)}
+        renderItem={({ item }) => (
+          <IngredientItem
+            item={item}
+            isSelected={selectedIngredientNames.has(normalizeIngredientName(item.name))}
+            toggleIngredientSelection={toggleIngredientSelection}
+          />
+        )}
+        contentContainerStyle={styles.mainListContent}
+        keyboardShouldPersistTaps="handled"
+      />
+
+      <Modal
+        animationType="slide"
+        transparent={false}
+        visible={modalVisible}
+        onRequestClose={() => {
+          setModalVisible(!modalVisible);
+        }}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalKeyboardAvoidingView}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : -250}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Ingredientes Seleccionados</Text>
+              <TouchableOpacity onPress={() => setModalVisible(!modalVisible)}>
+                <Ionicons name="close" size={30} color={Colors.gray800} />
+              </TouchableOpacity>
+            </View>
+            {selectedIngredients.length === 0 ? (
+              <View style={styles.emptyListContainer}>
+                <Text style={styles.emptyListText}>No hay ingredientes seleccionados aún.</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={selectedIngredients.sort((a, b) => {
+                  const nameA = a.originalName ?? '';
+                  const nameB = b.originalName ?? '';
+                  return nameA.localeCompare(nameB);
+                })}
+                keyExtractor={(item) => item.normalizedName}
+                renderItem={({ item }) => (
+                  <SelectedIngredientItem
+                    item={item}
+                    updateIngredientQuantity={updateIngredientQuantity}
+                    toggleIngredientSelection={toggleIngredientSelection}
+                  />
+                )}
+                contentContainerStyle={styles.modalListContent}
+                keyboardShouldPersistTaps="handled"
+              />
+            )}
+            <View style={styles.modalFooter}>
+              <TouchableOpacity style={styles.viewRecipesButton} onPress={navigateToRecipes}>
+                <Text style={styles.viewRecipesButtonText}>Ver Recetas ({selectedIngredients.length})</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.closeModalButton} onPress={() => setModalVisible(!modalVisible)}>
+                <Text style={styles.closeModalButtonText}>Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </KeyboardAvoidingView>
   );
-}
+};
 
-export default IngredientsFilterScreen;
+const windowWidth = Dimensions.get('window').width;
 
 const styles = StyleSheet.create({
-  fullScreen: {
+  screen: {
     flex: 1,
-  },
-  container: {
-    flex: 1,
-    padding: 10,
+    paddingHorizontal: 10,
     backgroundColor: Colors.gray100,
   },
-  sectionTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    marginVertical: 10,
-    color: Colors.primary800,
-    paddingHorizontal: 5,
-    textAlign: 'center',
-  },
-  headerButton: {
-    marginHorizontal: 10,
-  },
-  pressed: {
-    opacity: 0.6,
-    transform: [{ scale: 0.95 }],
-  },
-  selectedIngredientsListContainer: {
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: Colors.gray100,
-    borderRadius: 12,
-    backgroundColor: Colors.white,
-    maxHeight: Dimensions.get('window').height * 0.35,
-    minHeight: 50,
-    overflow: 'hidden',
-    shadowColor: Colors.gray800,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  selectedIngredientsListContent: {
-    flexGrow: 1,
-    paddingVertical: 8,
-  },
-  selectedIngredientItem: {
+  headerButtonsContainer: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.gray100,
-    backgroundColor: Colors.white,
-  },
-  selectedIngredientInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
     marginRight: 10,
   },
-  selectedIngredientName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.gray800,
-    flex: 1,
-    paddingRight: 5,
-  },
-  quantityInputContainer: {
+  headerButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginLeft: 10,
-    width: 120,
-    backgroundColor: Colors.gray100,
-    borderRadius: 8,
-    paddingHorizontal: 5,
-  },
-  quantityInput: {
-    borderRadius: 5,
-    paddingHorizontal: 5,
+    paddingHorizontal: 8,
     paddingVertical: 5,
-    width: 60,
-    textAlign: 'center',
-    fontSize: 18,
-    color: Colors.primary800,
+    borderRadius: 8,
+    backgroundColor: Colors.white,
+    marginLeft: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+    elevation: 2,
+  },
+  headerButtonText: {
+    color: Colors.primary500,
+    marginLeft: 4,
     fontWeight: 'bold',
   },
-  unitText: {
-    marginLeft: 5,
-    fontSize: 16,
-    color: Colors.gray500,
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    marginVertical: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+    elevation: 2,
   },
-  removeButton: {
+  searchIcon: {
+    marginRight: 10,
+  },
+  searchInput: {
+    flex: 1,
+    height: 40,
+    fontSize: 16,
+    color: Colors.gray800,
+  },
+  clearSearchButton: {
+    marginLeft: 10,
     padding: 5,
   },
   mainListContent: {
@@ -366,28 +388,173 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginVertical: 6,
     borderRadius: 12,
-    shadowColor: Colors.gray800,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+    elevation: 2,
   },
-  ingredientItemSelected: {
-    backgroundColor: Colors.primary500,
+  selectedItem: {
+    backgroundColor: Colors.primary100,
+    borderColor: Colors.primary500,
+    borderWidth: 1,
   },
-  ingredientText: {
+  pressedItem: {
+    opacity: 0.7,
+  },
+  ingredientName: {
     fontSize: 18,
+    fontWeight: '600',
     color: Colors.gray800,
-    fontWeight: '500',
+    flex: 1,
+    paddingRight: 5,
+  },
+
+  modalKeyboardAvoidingView: {
     flex: 1,
   },
-  checkmarkIcon: {
-    marginLeft: 15,
+  modalContainer: {
+    flex: 1,
+    paddingTop: Platform.OS === 'android' ? 0 : 50,
+    backgroundColor: Colors.gray100,
   },
-  emptyListText: {
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.gray200,
+    backgroundColor: Colors.white,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2.22,
+    elevation: 3,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: Colors.gray800,
+  },
+  modalListContent: {
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 180,
+  },
+  modalIngredientItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    marginVertical: 6,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 1.41,
+    elevation: 1,
+  },
+  modalIngredientInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  modalIngredientName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: Colors.gray800,
+    flex: 1,
+  },
+  quantityInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 10,
+    width: 120,
+    backgroundColor: Colors.gray100,
+    borderRadius: 8,
+    paddingHorizontal: 5,
+    borderWidth: 1,
+    borderColor: Colors.gray300,
+  },
+  quantityInput: {
+    flex: 1,
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 5,
     textAlign: 'center',
-    marginTop: 20,
-    fontSize: 18,
+    fontSize: 16,
+    color: Colors.primary800,
+    fontWeight: 'bold',
+  },
+  unitText: {
+    marginLeft: 5,
+    fontSize: 14,
     color: Colors.gray500,
   },
+  removeButton: {
+    padding: 8,
+    marginLeft: 10,
+  },
+  emptyListContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyListText: {
+    fontSize: 18,
+    color: Colors.gray500,
+    textAlign: 'center',
+  },
+  modalFooter: {
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: Colors.gray200,
+    backgroundColor: Colors.white,
+    alignItems: 'center',
+    flexDirection: 'column',
+  },
+  viewRecipesButton: {
+    backgroundColor: Colors.accent500,
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 25,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    marginBottom: 10,
+    width: '100%',
+    alignItems: 'center',
+  },
+  viewRecipesButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  closeModalButton: {
+    backgroundColor: Colors.primary500,
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 25,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    width: '100%',
+    alignItems: 'center',
+  },
+  closeModalButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
 });
+
+export default IngredientsFilterScreen;
